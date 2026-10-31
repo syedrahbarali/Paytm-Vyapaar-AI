@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Paytm Smart Checkout — {{ business_name }}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, sans-serif; }
+    body { background-color: #f3f7fa; color: #192533; display: flex; justify-content: center; min-height: 100vh; padding: 12px; }
+    .checkout-card { max-width: 440px; width: 100%; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 46, 110, 0.08); overflow: hidden; display: flex; flex-direction: column; }
+    
+    /* Header */
+    .header { background: linear-gradient(135deg, #002e6e 0%, #004394 100%); color: white; padding: 22px 20px 26px; text-align: center; position: relative; }
+    .brand-pill { display: inline-flex; align-items: center; gap: 6px; background: rgba(0, 185, 241, 0.2); border: 1px solid #00b9f1; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; color: #00b9f1; margin-bottom: 8px; }
+    .store-title { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+    .soundbox-badge { font-size: 11px; color: #7dd3fc; display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .pulse-dot { width: 7px; height: 7px; background: #00ba58; border-radius: 50%; box-shadow: 0 0 8px #00ba58; }
+
+    /* Content */
+    .content { padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Customer Identifier Box */
+    .customer-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+    .box-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }
+    .input-row { display: flex; gap: 8px; margin-bottom: 6px; }
+    .input-field { flex: 1; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; outline: none; }
+    .input-field:focus { border-color: #00b9f1; }
+
+    /* Dynamic Khata Alert Banner */
+    .khata-alert { background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 12px; display: none; }
+    .khata-alert-title { font-size: 12px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; }
+    .khata-alert-desc { font-size: 12px; color: #78350f; margin-top: 4px; }
+
+    /* Mode Tabs */
+    .tab-bar { display: flex; background: #e2e8f0; border-radius: 10px; padding: 3px; gap: 3px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; background: transparent; font-weight: 700; font-size: 13px; color: #64748b; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: #ffffff; color: #002e6e; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+
+    /* Tab Panes */
+    .tab-pane { display: none; flex-direction: column; gap: 14px; }
+    .tab-pane.active { display: flex; }
+
+    /* Input Amount Box */
+    .amount-box { text-align: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
+    .amount-label { font-size: 12px; color: #64748b; font-weight: 600; margin-bottom: 6px; }
+    .amount-input-wrap { display: flex; align-items: center; justify-content: center; gap: 4px; }
+    .currency-symbol { font-size: 26px; font-weight: 800; color: #002e6e; }
+    .amount-input { font-size: 32px; font-weight: 800; color: #002e6e; width: 150px; text-align: center; border: none; background: transparent; outline: none; }
+
+    /* Quick Chips */
+    .chip-row { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+    .chip { padding: 6px 12px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; font-size: 11px; font-weight: 700; color: #334155; cursor: pointer; }
+    .chip:hover { border-color: #00b9f1; color: #00b9f1; }
+
+    /* Split Settlement Box */
+    .split-settle-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .split-toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    .split-toggle-row input { width: 18px; height: 18px; accent-color: #00ba58; }
+    .split-text { font-size: 13px; font-weight: 700; color: #166534; }
+    .split-breakdown { font-size: 11px; color: #15803d; line-height: 1.4; padding-left: 28px; }
+
+    /* Action Buttons */
+    .btn-pay-now { background: #00ba58; color: #ffffff; border: none; padding: 15px; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(0, 186, 88, 0.25); }
+    .btn-pay-now:hover { background: #009c48; }
+
+    .btn-take-khata { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff; border: none; padding: 15px; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); }
+    .btn-take-khata:hover { background: #d97706; }
+
+    /* Result Modal */
+    .result-modal { position: fixed; inset: 0; background: rgba(0, 24, 68, 0.85); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
+    .modal-card { background: #ffffff; border-radius: 20px; padding: 24px; max-width: 380px; width: 100%; text-align: center; }
+    .modal-icon { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px; }
+    .modal-title { font-size: 18px; font-weight: 800; color: #002e6e; margin-bottom: 8px; }
+    .modal-desc { font-size: 13px; color: #475569; margin-bottom: 16px; line-height: 1.5; }
+    .soundbox-voice-pill { background: #002e6e; color: #ffffff; border-radius: 12px; padding: 12px; font-size: 12px; font-weight: 600; margin-bottom: 20px; text-align: left; display: flex; gap: 10px; align-items: flex-start; }
+    .btn-modal-close { background: #00b9f1; color: #002e6e; font-weight: 800; border: none; padding: 12px 24px; border-radius: 10px; width: 100%; cursor: pointer; }
+
+    /* Footer */
+    .footer { text-align: center; padding: 12px; font-size: 11px; color: #94a3b8; border-top: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body>
+
+<div class="checkout-card">
+  <!-- Header -->
+  <div class="header">
+    <div class="brand-pill">
+      <span>🛡️ PAYTM SMART CHECKOUT</span>
+    </div>
+    <h1 class="store-title">{{ business_name }}</h1>
+    <div class="soundbox-badge">
+      <span class="pulse-dot"></span>
+      <span>Live Audio Linked: Soundbox #{{ soundbox_device_id }}</span>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Customer Identity Details -->
+    <div class="customer-box">
+      <div class="box-label">👤 Customer Verification</div>
+      <div class="input-row">
+        <input type="text" id="custName" class="input-field" placeholder="Customer Name" value="Rahul Kumar">
+        <input type="tel" id="custPhone" class="input-field" placeholder="Mobile Number" value="+919811223344">
+      </div>
+    </div>
+
+    <!-- Dynamic Khata Alert (Auto shows if customer has past credit) -->
+    <div class="khata-alert" id="khataAlertBox">
+      <div class="khata-alert-title">
+        <span>⚠️ Outstanding Khata Ledger Balance</span>
+      </div>
+      <div class="khata-alert-desc" id="khataAlertText">
+        You have an active balance of ₹0.00 at this store.
+      </div>
+    </div>
+
+    <!-- Action Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('pay')">💳 Pay via UPI</button>
+      <button class="tab-btn" onclick="switchTab('khata')">📝 Take Khata (Pay Later)</button>
+    </div>
+
+    <!-- PANE 1: Regular Pay / Settle via UPI -->
+    <div class="tab-pane active" id="panePay">
+      <div class="amount-box">
+        <div class="amount-label">Enter Amount to Pay</div>
+        <div class="amount-input-wrap">
+          <span class="currency-symbol">₹</span>
+          <input type="number" id="payAmount" class="amount-input" value="500">
+        </div>
+        <div class="chip-row">
+          <span class="chip" onclick="setPayAmount(150)">₹150</span>
+          <span class="chip" onclick="setPayAmount(200)">₹200</span>
+          <span class="chip" onclick="setPayAmount(500)">₹500</span>
+          <span class="chip" onclick="setPayAmount(1000)">₹1000</span>
+        </div>
+      </div>
+
+      <!-- Split Settlement Toggle -->
+      <div class="split-settle-card" id="splitSettleCard" style="display: none;">
+        <label class="split-toggle-row">
+          <input type="checkbox" id="splitToggle" checked onchange="updateSplitCalculation()">
+          <span class="split-text">Auto-Settle Pending Khata (₹<span id="splitPendingAmt">200</span>)</span>
+        </label>
+        <div class="split-breakdown" id="splitBreakdownText">
+          ₹200 will clear your previous udhaar, and ₹300 will be credited for today's new groceries.
+        </div>
+      </div>
+
+      <button class="btn-pay-now" onclick="executePayment()">
+        <span>✓</span>
+        <span id="btnPayText">Pay ₹500 via Paytm UPI</span>
+      </button>
+    </div>
+
+    <!-- PANE 2: Take Khata (Pay Later) -->
+    <div class="tab-pane" id="paneKhata">
+      <div class="amount-box" style="background: #fffbeb; border-color: #fef3c7;">
+        <div class="amount-label" style="color: #b45309;">Enter Amount to Take on Khata</div>
+        <div class="amount-input-wrap">
+          <span class="currency-symbol" style="color: #b45309;">₹</span>
+          <input type="number" id="khataAmount" class="amount-input" style="color: #b45309;" value="200">
+        </div>
+        <div class="chip-row">
+          <span class="chip" onclick="setKhataAmount(100)">₹100</span>
+          <span class="chip" onclick="setKhataAmount(200)">₹200</span>
+          <span class="chip" onclick="setKhataAmount(400)">₹400</span>
+          <span class="chip" onclick="setKhataAmount(850)">₹850</span>
+        </div>
+      </div>
+
+      <div style="font-size: 12px; color: #64748b; line-height: 1.4; background: #f8fafc; padding: 10px; border-radius: 8px;">
+        💡 <strong>Zero Merchant Typing:</strong> Confirming here automatically announces your name & amount on the counter Soundbox and updates the shopkeeper's app ledger.
+      </div>
+
+      <button class="btn-take-khata" onclick="executePayLater()">
+        <span>📝</span>
+        <span id="btnKhataText">Confirm Khata of ₹200.00</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="footer">
+    Powered by Paytm VyapaarAI • Verified IoT Audio Settlement
+  </div>
+</div>
+
+<!-- Modal Confirmation -->
+<div class="result-modal" id="resultModal">
+  <div class="modal-card">
+    <div class="modal-icon" id="modalIcon">✅</div>
+    <div class="modal-title" id="modalTitle">Confirmed!</div>
+    <div class="modal-desc" id="modalDesc">Transaction has been broadcast to the merchant.</div>
+    <div class="soundbox-voice-pill">
+      <span style="font-size: 20px;">📢</span>
+      <div>
+        <div style="font-size: 10px; color: #38bdf8; text-transform: uppercase;">Soundbox Audio Announcement:</div>
+        <div id="modalVoiceText" style="margin-top: 2px;">"Sharma Kirana alert: Rahul Kumar ne ₹200 ka udhaar darj kiya!"</div>
+      </div>
+    </div>
+    <audio id="soundboxAudioPlayer" style="display: none;" preload="auto"></audio>
+    <button class="btn-modal-close" onclick="closeModal()">Done / Make Another Payment</button>
+  </div>
+</div>
+
+<script>
+  const MERCHANT_ID = "{{ merchant_id }}";
+  let activePendingKhata = {{ pending_khata_json | safe }};
+
+  function initScreen() {
+    refreshKhataUI();
+  }
+
+  function refreshKhataUI() {
+    const alertBox = document.getElementById('khataAlertBox');
+    const alertText = document.getElementById('khataAlertText');
+    const splitCard = document.getElementById('splitSettleCard');
+
+    if (activePendingKhata && activePendingKhata.has_pending && activePendingKhata.amount_due > 0) {
+      alertBox.style.display = 'block';
+      alertText.innerHTML = `You have <strong>₹${activePendingKhata.amount_due}</strong> pending Khata (${activePendingKhata.days_overdue} days overdue).`;
+      splitCard.style.display = 'flex';
+      document.getElementById('splitPendingAmt').innerText = activePendingKhata.amount_due;
+      updateSplitCalculation();
+    } else {
+      alertBox.style.display = 'none';
+      splitCard.style.display = 'none';
+    }
+  }
+
+  function switchTab(mode) {
+    const btns = document.querySelectorAll('.tab-btn');
+    btns[0].classList.toggle('active', mode === 'pay');
+    btns[1].classList.toggle('active', mode === 'khata');
+
+    document.getElementById('panePay').classList.toggle('active', mode === 'pay');
+    document.getElementById('paneKhata').classList.toggle('active', mode === 'khata');
+  }
+
+  function setPayAmount(val) {
+    document.getElementById('payAmount').value = val;
+    document.getElementById('btnPayText').innerText = `Pay ₹${val} via Paytm UPI`;
+    updateSplitCalculation();
+  }
+
+  function setKhataAmount(val) {
+    document.getElementById('khataAmount').value = val;
+    document.getElementById('btnKhataText').innerText = `Confirm Khata of ₹${val}.00`;
+  }
+
+  document.getElementById('payAmount').addEventListener('input', (e) => {
+    document.getElementById('btnPayText').innerText = `Pay ₹${e.target.value} via Paytm UPI`;
+    updateSplitCalculation();
+  });
+
+  document.getElementById('khataAmount').addEventListener('input', (e) => {
+    document.getElementById('btnKhataText').innerText = `Confirm Khata of ₹${e.target.value}.00`;
+  });
+
+  function updateSplitCalculation() {
+    const total = parseFloat(document.getElementById('payAmount').value) || 0;
+    const splitToggle = document.getElementById('splitToggle').checked;
+    const pending = (activePendingKhata && activePendingKhata.amount_due) ? activePendingKhata.amount_due : 0;
+    const breakdown = document.getElementById('splitBreakdownText');
+
+    if (splitToggle && pending > 0) {
+      const settled = Math.min(total, pending);
+      const newGoods = Math.max(0, total - settled);
+      breakdown.innerText = `₹${settled} will settle your previous Khata. Remaining ₹${newGoods} will pay for today's new items.`;
+    } else {
+      breakdown.innerText = `Total ₹${total} credited as direct sale. Khata balance remains pending.`;
+    }
+  }
+
+  async function executePayLater() {
+    const name = document.getElementById('custName').value.trim() || "Rahul Kumar";
+    const phone = document.getElementById('custPhone').value.trim() || "+919811223344";
+    const amount = parseFloat(document.getElementById('khataAmount').value) || 200;
+
+    try {
+      const resp = await fetch('/api/v1/customer/pay-later', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchant_id: MERCHANT_ID,
+          customer_name: name,
+          customer_phone: phone,
+          amount: amount,
+          notes: "Counter QR Pay Later"
+        })
+      });
+      const data = await resp.json();
+
+      // Update local khata state
+      activePendingKhata = {
+        has_pending: true,
+        amount_due: amount,
+        days_overdue: 0,
+        customer_name: name
+      };
+      refreshKhataUI();
+
+      showModal(
+        "📝",
+        "#fef3c7",
+        "Khata (Udhaar) Recorded!",
+        `₹${amount} recorded for ${name}. The shopkeeper's app ledger has updated automatically.`,
+        data.soundbox_announcement,
+        data.audio_url
+      );
+    } catch (err) {
+      alert("Error recording Pay-Later: " + err);
+    }
+  }
+
+  async function executePayment() {
+    const name = document.getElementById('custName').value.trim() || "Rahul Kumar";
+    const phone = document.getElementById('custPhone').value.trim() || "+919811223344";
+    const total = parseFloat(document.getElementById('payAmount').value) || 500;
+    const settle = document.getElementById('splitToggle').checked && activePendingKhata && activePendingKhata.has_pending;
+    const settleAmt = settle ? Math.min(total, activePendingKhata.amount_due) : 0;
+
+    try {
+      const resp = await fetch('/api/v1/customer/pay-and-settle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchant_id: MERCHANT_ID,
+          customer_name: name,
+          customer_phone: phone,
+          total_payment: total,
+          settle_khata: settle,
+          settle_amount: settleAmt,
+          payment_mode: "Paytm UPI"
+        })
+      });
+      const data = await resp.json();
+
+      // Clear local pending khata if fully settled
+      if (settle && (activePendingKhata.amount_due - settleAmt <= 0)) {
+        activePendingKhata = { has_pending: false, amount_due: 0 };
+      }
+      refreshKhataUI();
+
+      showModal(
+        "✅",
+        "#dcfce7",
+        "Payment Successful!",
+        settle ? `₹${total} paid! Purana ₹${settleAmt} udhaar chukta ho gaya.` : `₹${total} received via Paytm UPI.`,
+        data.soundbox_announcement,
+        data.audio_url
+      );
+    } catch (err) {
+      alert("Error processing payment: " + err);
+    }
+  }
+
+  function showModal(icon, bg, title, desc, voiceText, audioUrl) {
+    document.getElementById('modalIcon').innerText = icon;
+    document.getElementById('modalIcon').style.background = bg;
+    document.getElementById('modalTitle').innerText = title;
+    document.getElementById('modalDesc').innerText = desc;
+    document.getElementById('modalVoiceText').innerText = `"${voiceText}"`;
+    document.getElementById('resultModal').style.display = 'flex';
+
+    // Play Soundbox audio
+    if (audioUrl) {
+      const audio = document.getElementById('soundboxAudioPlayer');
+      audio.src = audioUrl;
+      audio.play().catch(e => {
+        // Fallback to browser Web Speech API
+        speakFallback(voiceText);
+      });
+    } else {
+      speakFallback(voiceText);
+    }
+  }
+
+  function speakFallback(text) {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'hi-IN';
+      utter.rate = 1.0;
+      window.speechSynthesis.speak(utter);
+    }
+  }
+
+  function closeModal() {
+    document.getElementById('resultModal').style.display = 'none';
+  }
+
+  window.onload = initScreen;
+</script>
+
+</body>
+</html>

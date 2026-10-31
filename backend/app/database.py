@@ -37,6 +37,11 @@ class Transaction(Base):
     status: Mapped[str] = mapped_column(String(20), default="SUCCESS")
     chime_played: Mapped[bool] = mapped_column(Boolean, default=True)
     timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), index=True)
+    is_split_settlement: Mapped[bool] = mapped_column(Boolean, default=False)
+    settled_khata_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    settled_khata_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0.0)
+    net_sale_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0.0)
+    soundbox_chime_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     merchant = relationship("Merchant", back_populates="transactions")
 
@@ -47,10 +52,15 @@ class KhataEntry(Base):
     merchant_id: Mapped[str] = mapped_column(String(50), ForeignKey("merchants.id"), index=True, nullable=False)
     customer_name: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_phone: Mapped[str] = mapped_column(String(15), nullable=False)
+    customer_vpa: Mapped[str | None] = mapped_column(String(80), nullable=True)
     amount_due: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     due_date: Mapped[str] = mapped_column(String(20), nullable=False)
     days_overdue: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="PENDING")  # PENDING, CRITICAL, REMINDED, SETTLED
+    source_channel: Mapped[str] = mapped_column(String(30), default="COUNTER_QR_WEB")
+    settled_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    settled_by_txn_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     last_reminder_sent: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     merchant = relationship("Merchant", back_populates="khata_entries")

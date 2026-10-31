@@ -5,9 +5,15 @@ import pytest_asyncio
 from app.main import app
 from app.init_db import init_db
 
+@pytest_asyncio.fixture(autouse=True)
+async def setup_db():
+    from app.database import Base, engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await init_db()
+
 @pytest.mark.asyncio
 async def test_voice_copilot_pipeline():
-    await init_db()
     # Mock audio bytes
     fake_audio = io.BytesIO(b"RIFF....WAVEfmt ....data....")
     files = {"audio_file": ("test_voice.wav", fake_audio, "audio/wav")}

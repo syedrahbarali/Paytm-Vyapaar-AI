@@ -1,6 +1,8 @@
 import datetime
 import uuid
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
@@ -10,10 +12,15 @@ from app.schemas.api_models import (
     KhataSummaryDto, LoanOfferDto, KhataListResponse, KhataEntryDto,
     KhataReminderRequest, KhataReminderResponse, LoanClaimRequest, LoanClaimResponse,
     SoundboxWebhookRequest, SoundboxWebhookResponse, UpdatedMetricsDto,
-    VoiceQueryResponse, VoiceQueryPayloadDto, DebtorDto, VoiceLoanOfferDto
+    VoiceQueryResponse, VoiceQueryPayloadDto, DebtorDto, VoiceLoanOfferDto,
+    CustomerCheckoutDetailsResponse, PendingKhataInfoDto, CustomerPayLaterRequest,
+    CustomerPayLaterResponse, CustomerPayAndSettleRequest, CustomerPayAndSettleResponse,
+    LiveFeedEventDto
 )
 from app.services.voice_service import voice_service
 from app.services.whatsapp_service import whatsapp_service
+from app.services.event_broadcaster import event_broadcaster
+from app.services.qr_service import qr_service
 from app.config import settings
 
 router = APIRouter()
@@ -278,12 +285,318 @@ async def handle_soundbox_webhook(req: SoundboxWebhookRequest, db: AsyncSession 
     )
     total_sales, txn_count = sales_res.one()
 
+    chime_text = f"Paytm par ₹{int(req.amount)} prapt hue"
+
+    # Broadcast event to live SSE stream & Android listeners
+    await event_broadcaster.broadcast_event(
+        event_type="PAYMENT_RECEIVED",
+        customer_name=req.payer_name,
+        customer_phone="",
+        total_amount=req.amount,
+        soundbox_announcement=chime_text
+    )
+
     return SoundboxWebhookResponse(
         status="SUCCESS",
         transaction_id=txn_id,
-        soundbox_chime=f"Paytm par ₹{int(req.amount)} prapt hue",
+        soundbox_chime=chime_text,
         updated_metrics=UpdatedMetricsDto(
             today_total_sales=float(total_sales),
             today_txn_count=int(txn_count)
         )
     )
+
+# -------------------------------------------------------------
+# 6. Customer QR Checkout Endpoints (Pay Later & Auto-Settlement)
+# -------------------------------------------------------------
+def normalize_phone(phone: str) -> str:
+    p = phone.strip().replace(" ", "").replace("-", "")
+    if not p.startswith("+"):
+        if len(p) == 10:
+            p = f"+91{p}"
+        elif p.startswith("91") and len(p) == 12:
+            p = f"+{p}"
+        elif p.startswith("0") and len(p) == 11:
+            p = f"+91{p[1:]}"
+    return p
+
+@router.get("/customer/checkout-details/{merchant_id}", response_model=CustomerCheckoutDetailsResponse)
+async def get_customer_checkout_details(
+    merchant_id: str,
+    customer_phone: str = "+919811229988",
+    db: AsyncSession = Depends(get_db)
+):
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+
+    clean_phone = normalize_phone(customer_phone)
+
+    # Check for active pending khata for this phone
+    khata_res = await db.execute(
+        select(KhataEntry)
+        .where(KhataEntry.merchant_id == merchant_id, KhataEntry.customer_phone == clean_phone, KhataEntry.status != "SETTLED")
+        .order_by(desc(KhataEntry.amount_due))
+        .limit(1)
+    )
+    khata = khata_res.scalar_one_or_none()
+
+    pending_dto = PendingKhataInfoDto(
+        has_pending=khata is not None,
+        khata_id=khata.id if khata else None,
+        customer_name=khata.customer_name if khata else None,
+        amount_due=float(khata.amount_due) if khata else 0.0,
+        due_date=khata.due_date if khata else None,
+        days_overdue=khata.days_overdue if khata else 0,
+        message=f"Outstanding Khata: ₹{khata.amount_due}" if khata else "No pending Khata"
+    )
+
+    return CustomerCheckoutDetailsResponse(
+        merchant_id=merchant.id,
+        business_name=merchant.business_name,
+        soundbox_device_id=merchant.soundbox_device_id,
+        soundbox_online=merchant.soundbox_online,
+        pending_khata=pending_dto,
+        supported_payment_modes=["Paytm UPI", "GPay", "PhonePe", "BHIM UPI"],
+        checkout_url=f"/checkout/{merchant.id}"
+    )
+
+@router.post("/customer/pay-later", response_model=CustomerPayLaterResponse, status_code=201)
+async def customer_pay_later(
+    req: CustomerPayLaterRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    merchant = await db.get(Merchant, req.merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+
+    khata_id = f"khata_qr_{uuid.uuid4().hex[:8]}"
+    due_str = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
+    clean_phone = normalize_phone(req.customer_phone)
+
+    new_khata = KhataEntry(
+        id=khata_id,
+        merchant_id=req.merchant_id,
+        customer_name=req.customer_name,
+        customer_phone=clean_phone,
+        customer_vpa=req.customer_vpa,
+        amount_due=req.amount,
+        due_date=due_str,
+        days_overdue=0,
+        status="PENDING",
+        source_channel="COUNTER_QR_WEB",
+        created_at=datetime.datetime.now(datetime.timezone.utc)
+    )
+    db.add(new_khata)
+    await db.commit()
+
+    announcement = f"Sharma Kirana alert: {req.customer_name} ne {int(req.amount)} rupaye ka udhaar darj kiya!"
+
+    # Broadcast event & generate audio
+    broadcast_data = await event_broadcaster.broadcast_event(
+        event_type="KHATA_RECORDED",
+        customer_name=req.customer_name,
+        customer_phone=clean_phone,
+        total_amount=req.amount,
+        soundbox_announcement=announcement
+    )
+
+    return CustomerPayLaterResponse(
+        status="RECORDED",
+        khata_id=khata_id,
+        merchant_id=req.merchant_id,
+        customer_name=req.customer_name,
+        amount=req.amount,
+        soundbox_announcement=announcement,
+        audio_url=broadcast_data.get("audio_url", ""),
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        message=f"₹{req.amount} credit recorded for {req.customer_name}. Soundbox verified."
+    )
+
+@router.post("/customer/pay-and-settle", response_model=CustomerPayAndSettleResponse)
+async def customer_pay_and_settle(
+    req: CustomerPayAndSettleRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    merchant = await db.get(Merchant, req.merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+
+    txn_id = f"txn_settle_{uuid.uuid4().hex[:8]}"
+    settled_khata_id = None
+    settled_amount = 0.0
+    clean_phone = normalize_phone(req.customer_phone)
+
+    if req.settle_khata:
+        khata_res = await db.execute(
+            select(KhataEntry)
+            .where(KhataEntry.merchant_id == req.merchant_id, KhataEntry.customer_phone == clean_phone, KhataEntry.status != "SETTLED")
+            .order_by(desc(KhataEntry.amount_due))
+            .limit(1)
+        )
+        khata = khata_res.scalar_one_or_none()
+
+        if khata:
+            settled_khata_id = khata.id
+            due = float(khata.amount_due)
+            settled_amount = float(req.settle_amount) if req.settle_amount is not None else min(req.total_payment, due)
+            
+            if settled_amount >= due:
+                khata.status = "SETTLED"
+                khata.amount_due = 0.0
+            else:
+                khata.amount_due = due - settled_amount
+            
+            khata.settled_at = datetime.datetime.now(datetime.timezone.utc)
+            khata.settled_by_txn_id = txn_id
+
+    net_sale = req.total_payment - settled_amount
+
+    if settled_amount > 0:
+        announcement = f"Paytm par {int(req.total_payment)} rupaye prapt hue. Aur purana {int(settled_amount)} rupaye udhaar chukta hua!"
+    else:
+        announcement = f"Paytm par {int(req.total_payment)} rupaye prapt hue"
+
+    new_txn = Transaction(
+        id=txn_id,
+        merchant_id=req.merchant_id,
+        idempotency_key=f"IDEMP_{txn_id}",
+        amount=req.total_payment,
+        payment_mode=req.payment_mode,
+        payer_name=req.customer_name,
+        status="SUCCESS",
+        chime_played=True,
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
+        is_split_settlement=(settled_amount > 0),
+        settled_khata_id=settled_khata_id,
+        settled_khata_amount=settled_amount,
+        net_sale_amount=net_sale,
+        soundbox_chime_text=announcement
+    )
+    db.add(new_txn)
+    await db.commit()
+
+    event_type = "KHATA_SETTLED" if settled_amount > 0 else "PAYMENT_RECEIVED"
+    broadcast_data = await event_broadcaster.broadcast_event(
+        event_type=event_type,
+        customer_name=req.customer_name,
+        customer_phone=req.customer_phone,
+        total_amount=req.total_payment,
+        settled_khata_amount=settled_amount,
+        soundbox_announcement=announcement
+    )
+
+    return CustomerPayAndSettleResponse(
+        status="SUCCESS",
+        transaction_id=txn_id,
+        merchant_id=req.merchant_id,
+        customer_name=req.customer_name,
+        total_payment=req.total_payment,
+        khata_settled_amount=settled_amount,
+        net_new_purchase=net_sale,
+        soundbox_announcement=announcement,
+        audio_url=broadcast_data.get("audio_url", ""),
+        khata_status="SETTLED" if settled_amount > 0 else "NONE",
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        message="Payment processed and Soundbox voice chime triggered."
+    )
+
+# -------------------------------------------------------------
+# 7. QR Code Generation & Real-time Live Feed Stream
+# -------------------------------------------------------------
+@router.get("/merchant/counter-qr")
+async def get_counter_qr_code(
+    merchant_id: str = "sharma-kirana-001",
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+
+    base_url = str(request.base_url).rstrip("/") if request else settings.BASE_URL
+    checkout_url = f"{base_url}/checkout/{merchant_id}"
+    qr_bytes = qr_service.generate_counter_qr_bytes(checkout_url, merchant.business_name)
+    return Response(content=qr_bytes, media_type="image/png")
+
+@router.get("/merchant/live-feed", response_model=List[LiveFeedEventDto])
+async def get_live_feed(merchant_id: str = "sharma-kirana-001", limit: int = 20):
+    events = event_broadcaster.get_recent_events(limit)
+    return [
+        LiveFeedEventDto(
+            event_id=e["event_id"],
+            event_type=e["event_type"],
+            customer_name=e["customer_name"],
+            customer_phone=e["customer_phone"],
+            total_amount=e["total_amount"],
+            settled_khata_amount=e.get("settled_khata_amount", 0.0),
+            timestamp=e["timestamp"],
+            soundbox_announcement=e["soundbox_announcement"],
+            audio_url=e.get("audio_url"),
+            is_soundbox_verified=e.get("is_soundbox_verified", True)
+        ) for e in events
+    ]
+
+@router.get("/stream/events")
+async def stream_live_events():
+    return StreamingResponse(
+        event_broadcaster.subscribe(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+# -------------------------------------------------------------
+# 8. Hackathon Simulation & Demo Endpoints
+# -------------------------------------------------------------
+@router.post("/demo/simulate-qr-udhaar", response_model=CustomerPayLaterResponse, status_code=201)
+async def demo_simulate_qr_udhaar(
+    customer_name: str = "Rahul Kumar",
+    amount: float = 200.0,
+    merchant_id: str = "sharma-kirana-001",
+    db: AsyncSession = Depends(get_db)
+):
+    req = CustomerPayLaterRequest(
+        merchant_id=merchant_id,
+        customer_name=customer_name,
+        customer_phone="+919811229988",
+        amount=amount,
+        notes="Hackathon Live Demo Simulation"
+    )
+    return await customer_pay_later(req, db)
+
+@router.post("/demo/simulate-qr-settlement", response_model=CustomerPayAndSettleResponse)
+async def demo_simulate_qr_settlement(
+    customer_name: str = "Rahul Kumar",
+    payment_amount: float = 500.0,
+    settle_amount: float = 200.0,
+    merchant_id: str = "sharma-kirana-001",
+    db: AsyncSession = Depends(get_db)
+):
+    req = CustomerPayAndSettleRequest(
+        merchant_id=merchant_id,
+        customer_name=customer_name,
+        customer_phone="+919811229988",
+        total_payment=payment_amount,
+        settle_khata=True,
+        settle_amount=settle_amount,
+        payment_mode="Paytm UPI"
+    )
+    return await customer_pay_and_settle(req, db)
+
+@router.post("/demo/reset")
+async def demo_reset_data(db: AsyncSession = Depends(get_db)):
+    """Resets demo customer Rahul Kumar's khata and recent transactions for clean repeat demos."""
+    from app.init_db import init_db
+    # Clear test transactions created during demo
+    await db.execute(
+        Transaction.__table__.delete().where(Transaction.payer_name == "Rahul Kumar")
+    )
+    await db.execute(
+        KhataEntry.__table__.delete().where(KhataEntry.customer_name == "Rahul Kumar")
+    )
+    await db.commit()
+    return {"status": "SUCCESS", "message": "Demo data reset successfully for repeat demonstrations."}

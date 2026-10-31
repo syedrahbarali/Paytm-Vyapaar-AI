@@ -349,3 +349,105 @@ curl -X POST "http://127.0.0.1:8000/api/v1/soundbox/webhook" \
        "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
      }'
 ```
+
+---
+
+## 6. Customer-Initiated QR Pay-Later & Auto-Settlement Endpoints
+
+### 6.1 GET `/checkout/{merchant_id}`
+- **Description:** Renders the mobile-responsive Paytm-branded Smart Checkout web application for customers who scan the store's counter QR code.
+- **Response:** `text/html` (Interactive web UI with live audio announcement support).
+
+### 6.2 GET `/api/v1/customer/checkout-details/{merchant_id}`
+- **Description:** Returns store information and automatically checks if the scanning customer's phone number has an active pending balance.
+- **Query Parameters:** `customer_phone` (e.g. `+919811229988`)
+- **Response Example:**
+  ```json
+  {
+    "merchant_id": "sharma-kirana-001",
+    "business_name": "Sharma Kirana Store",
+    "soundbox_device_id": "SB-DELHI-981",
+    "soundbox_online": true,
+    "pending_khata": {
+      "has_pending": true,
+      "khata_id": "khata_qr_8f697aa4",
+      "customer_name": "Vikas Sharma",
+      "amount_due": 250.0,
+      "due_date": "2026-11-07",
+      "days_overdue": 0,
+      "message": "Outstanding Khata: ₹250.0"
+    },
+    "supported_payment_modes": ["Paytm UPI", "GPay", "PhonePe", "BHIM UPI"],
+    "checkout_url": "/checkout/sharma-kirana-001"
+  }
+  ```
+
+### 6.3 POST `/api/v1/customer/pay-later`
+- **Description:** Records customer-initiated Khata (credit) when the customer confirms credit on their own phone.
+- **Request Body:**
+  ```json
+  {
+    "merchant_id": "sharma-kirana-001",
+    "customer_name": "Rahul Kumar",
+    "customer_phone": "+919811229988",
+    "amount": 200.0,
+    "notes": "Evening groceries"
+  }
+  ```
+- **Response Example:**
+  ```json
+  {
+    "status": "RECORDED",
+    "khata_id": "khata_qr_8f697aa4",
+    "merchant_id": "sharma-kirana-001",
+    "customer_name": "Rahul Kumar",
+    "amount": 200.0,
+    "soundbox_announcement": "Sharma Kirana alert: Rahul Kumar ne 200 rupaye ka udhaar darj kiya!",
+    "audio_url": "/static/audio/reply_7d199d71.mp3",
+    "timestamp": "2026-10-31T09:02:36.010247+00:00",
+    "message": "₹200.0 credit recorded for Rahul Kumar. Soundbox verified."
+  }
+  ```
+
+### 6.4 POST `/api/v1/customer/pay-and-settle`
+- **Description:** Processes a return payment from a customer, automatically clearing pending Khata and crediting the remainder as a new sale.
+- **Request Body:**
+  ```json
+  {
+    "merchant_id": "sharma-kirana-001",
+    "customer_name": "Rahul Kumar",
+    "customer_phone": "+919811229988",
+    "total_payment": 500.0,
+    "settle_khata": true,
+    "payment_mode": "Paytm UPI"
+  }
+  ```
+- **Response Example:**
+  ```json
+  {
+    "status": "SUCCESS",
+    "transaction_id": "txn_settle_08251030",
+    "merchant_id": "sharma-kirana-001",
+    "customer_name": "Rahul Kumar",
+    "total_payment": 500.0,
+    "khata_settled_amount": 200.0,
+    "net_new_purchase": 300.0,
+    "soundbox_announcement": "Paytm par 500 rupaye prapt hue. Aur purana 200 rupaye udhaar chukta hua!",
+    "audio_url": "/static/audio/reply_673f4a4e.mp3",
+    "khata_status": "SETTLED",
+    "timestamp": "2026-10-31T09:02:49.996011+00:00",
+    "message": "Payment processed and Soundbox voice chime triggered."
+  }
+  ```
+
+### 6.5 GET `/api/v1/merchant/counter-qr`
+- **Description:** Generates and returns a 370x370 PNG image of the official Paytm Counter QR code that embeds the store checkout URL (`/checkout/{merchant_id}`).
+- **Content-Type:** `image/png`
+
+### 6.6 GET `/api/v1/merchant/live-feed`
+- **Description:** Returns the real-time event feed for the merchant's Android app (payments, new khata requests, and settled khata).
+- **Response:** Array of `LiveFeedEventDto` objects.
+
+### 6.7 GET `/api/v1/stream/events`
+- **Description:** Server-Sent Events (SSE) stream delivering real-time JSON events to Android or web dashboards.
+- **Content-Type:** `text/event-stream`
