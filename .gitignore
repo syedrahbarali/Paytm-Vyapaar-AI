@@ -1,0 +1,9 @@
+venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.db
+.env
+.pytest_cache/
+static/audio/
+backend/static/audio/reply_*.mp3
